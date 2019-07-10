@@ -79,7 +79,7 @@ class ControllerCheckoutCart extends Controller {
 				}
 
 				if ($product['image']) {
-					$image = $this->model_tool_image->resize($product['image'], $this->config->get('theme_' . $this->config->get('config_theme') . '_image_cart_width'), $this->config->get('theme_' . $this->config->get('config_theme') . '_image_cart_height'));
+					$image = $this->model_tool_image->resize(html_entity_decode($product['image'], ENT_QUOTES, 'UTF-8'), $this->config->get('theme_' . $this->config->get('config_theme') . '_image_cart_width'), $this->config->get('theme_' . $this->config->get('config_theme') . '_image_cart_height'));
 				} else {
 					$image = '';
 				}
@@ -167,13 +167,6 @@ class ControllerCheckoutCart extends Controller {
 			$taxes = $this->cart->getTaxes();
 			$total = 0;
 
-			// Because __call can not keep var references so we put them into an array.
-			$total_data = array(
-				'totals' => &$totals,
-				'taxes'  => &$taxes,
-				'total'  => &$total
-			);
-
 			// Display prices
 			if ($this->customer->isLogged() || !$this->config->get('config_customer_price')) {
 				$sort_order = array();
@@ -190,8 +183,8 @@ class ControllerCheckoutCart extends Controller {
 					if ($this->config->get('total_' . $result['code'] . '_status')) {
 						$this->load->model('extension/total/' . $result['code']);
 
-						// We have to put the totals in an array so that they pass by reference.
-						$this->{'model_extension_total_' . $result['code']}->getTotal($total_data);
+						// __call can not pass-by-reference so we get PHP to call it as an anonymous function.
+						($this->{'model_extension_total_' . $result['code']}->getTotal)($totals, $taxes, $total);
 					}
 				}
 
@@ -217,8 +210,6 @@ class ControllerCheckoutCart extends Controller {
 
 			$data['checkout'] = $this->url->link('checkout/checkout', 'language=' . $this->config->get('config_language'));
 
-			$this->load->model('setting/extension');
-
 			$data['modules'] = array();
 
 			$files = glob(DIR_APPLICATION . '/controller/extension/total/*.php');
@@ -233,8 +224,6 @@ class ControllerCheckoutCart extends Controller {
 				}
 			}
 
-			$data['language'] = $this->config->get('config_language');
-
 			$data['column_left'] = $this->load->controller('common/column_left');
 			$data['column_right'] = $this->load->controller('common/column_right');
 			$data['content_top'] = $this->load->controller('common/content_top');
@@ -244,13 +233,11 @@ class ControllerCheckoutCart extends Controller {
 
 			$this->response->setOutput($this->load->view('checkout/cart', $data));
 		} else {
-			$data['text_error'] = $this->language->get('text_empty');
+			$data['text_error'] = $this->language->get('text_no_results');
 
 			$data['continue'] = $this->url->link('common/home', 'language=' . $this->config->get('config_language'));
 
 			unset($this->session->data['success']);
-
-			$data['language'] = $this->config->get('config_language');
 
 			$data['column_left'] = $this->load->controller('common/column_left');
 			$data['column_right'] = $this->load->controller('common/column_right');
@@ -280,18 +267,7 @@ class ControllerCheckoutCart extends Controller {
 
 		if ($product_info) {
 			if (isset($this->request->post['quantity'])) {
-				if(is_numeric($this->request->post['quantity'])){
-					$quantity = round($this->request->post['quantity']);
-
-					if($quantity < 1){
-						// Post Error Message when it is not bigger than 1
-						$json['error']['quantity'] = $this->language->get('error_quantity_required_zero');
-					}
-				} else {
-					// Post Error Message when it is not text
-					$json['error']['quantity'] = $this->language->get('error_quantity_required');
-				}
-
+				$quantity = (int)$this->request->post['quantity'];
 			} else {
 				$quantity = 1;
 			}
@@ -302,7 +278,17 @@ class ControllerCheckoutCart extends Controller {
 				$option = array();
 			}
 
-			$product_options = $this->model_catalog_product->getProductOptions($this->request->post['product_id']);
+			// If variant get master product
+			if ($product_info['master_id']) {
+				$product_id = $product_info['master_id'];
+			}
+
+			// Merge variant code with options
+			foreach ($product_info['variant'] as $key => $value) {
+				$option[$key] = $value;
+			}
+
+			$product_options = $this->model_catalog_product->getProductOptions($product_id);
 
 			foreach ($product_options as $product_option) {
 				if ($product_option['required'] && empty($option[$product_option['product_option_id']])) {

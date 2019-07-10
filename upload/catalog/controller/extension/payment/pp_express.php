@@ -6,18 +6,20 @@ class ControllerExtensionPaymentPPExpress extends Controller {
 		$data['payment_pp_express_incontext_disable'] = $this->config->get('payment_pp_express_incontext_disable');
 
 		if ($this->config->get('payment_pp_express_test') == 1) {
-			$data['username'] = $this->config->get('payment_pp_express_sandbox_username');
 			$data['paypal_environment'] = "sandbox";
 		} else {
-			$data['username'] = $this->config->get('payment_pp_express_username');
 			$data['paypal_environment'] = "production";
 		}
 
-		$data['continue'] = $this->url->link('extension/payment/pp_express/checkout', 'language=' . $this->config->get('config_language'));
+		$data['continue'] = $this->url->link('extension/payment/pp_express/checkout');
 
 		unset($this->session->data['paypal']);
 
 		return $this->load->view('extension/payment/pp_express', $data);
+	}
+
+	public function eventLoadCheckoutJs($route, &$data) {
+		$this->document->addScript('https://www.paypalobjects.com/api/checkout.js');
 	}
 
 	public function express() {
@@ -78,7 +80,7 @@ class ControllerExtensionPaymentPPExpress extends Controller {
 			'ALLOWNOTE'          => $this->config->get('payment_pp_express_allow_note'),
 			'LOCALECODE'         => 'EN',
 			'LANDINGPAGE'        => 'Login',
-			'HDRIMG'             => $this->model_tool_image->resize($this->config->get('payment_pp_express_logo'), 750, 90),
+			'HDRIMG'             => $this->model_tool_image->resize(html_entity_decode($this->config->get('payment_pp_express_logo'), ENT_QUOTES, 'UTF-8'), 750, 90),
 			'PAYFLOWCOLOR'       => $this->config->get('payment_pp_express_colour'),
 			'CHANNELTYPE'        => 'Merchant'
 		);
@@ -96,11 +98,6 @@ class ControllerExtensionPaymentPPExpress extends Controller {
 		 */
 		if (!isset($result['TOKEN'])) {
 			$this->session->data['error'] = $result['L_LONGMESSAGE0'];
-			/**
-			 * Unable to add error message to user as the session errors/success are not
-			 * used on the cart or checkout pages - need to be added?
-			 * If PayPal debug log is off then still log error to normal error log.
-			 */
 
 			$this->log->write('Unable to create PayPal call: ' . json_encode($result));
 
@@ -314,7 +311,11 @@ class ControllerExtensionPaymentPPExpress extends Controller {
 					$shipping_last_name = implode(' ', $shipping_name);
 
 					$country_info = $this->db->query("SELECT * FROM `" . DB_PREFIX . "country` WHERE `iso_code_2` = '" . $this->db->escape($result['PAYMENTREQUEST_0_SHIPTOCOUNTRYCODE']) . "' AND `status` = '1' LIMIT 1")->row;
-					$zone_info = $this->db->query("SELECT * FROM `" . DB_PREFIX . "zone` WHERE (`name` = '" . $this->db->escape($result['PAYMENTREQUEST_0_SHIPTOSTATE']) . "' OR `code` = '" . $this->db->escape($result['PAYMENTREQUEST_0_SHIPTOSTATE']) . "') AND `status` = '1' AND `country_id` = '" . (int)$country_info['country_id'] . "'")->row;
+					if (isset($result['PAYMENTREQUEST_0_SHIPTOSTATE'])) {
+						$zone_info = $this->db->query("SELECT * FROM `" . DB_PREFIX . "zone` WHERE (`name` = '" . $this->db->escape($result['PAYMENTREQUEST_0_SHIPTOSTATE']) . "' OR `code` = '" . $this->db->escape($result['PAYMENTREQUEST_0_SHIPTOSTATE']) . "') AND `status` = '1' AND `country_id` = '" . (int)$country_info['country_id'] . "'")->row;
+					} else {
+						$zone_info = array();
+					}
 
 					$address_data = array(
 						'firstname'  => $shipping_first_name,
@@ -580,6 +581,7 @@ class ControllerExtensionPaymentPPExpress extends Controller {
 							//default the shipping to the very first option.
 							$key1 = key($quote_data);
 							$key2 = key($quote_data[$key1]['quote']);
+
 							$this->session->data['shipping_method'] = $quote_data[$key1]['quote'][$key2];
 						}
 
@@ -593,6 +595,7 @@ class ControllerExtensionPaymentPPExpress extends Controller {
 				} else {
 					unset($this->session->data['shipping_methods']);
 					unset($this->session->data['shipping_method']);
+
 					$data['error_no_shipping'] = $this->language->get('error_no_shipping');
 				}
 			}
@@ -606,13 +609,6 @@ class ControllerExtensionPaymentPPExpress extends Controller {
 		$totals = array();
 		$taxes = $this->cart->getTaxes();
 		$total = 0;
-
-		// Because __call can not keep var references so we put them into an array.
-		$total_data = array(
-			'totals' => &$totals,
-			'taxes'  => &$taxes,
-			'total'  => &$total
-		);
 
 		// Display prices
 		if ($this->customer->isLogged() || !$this->config->get('config_customer_price')) {
@@ -630,8 +626,8 @@ class ControllerExtensionPaymentPPExpress extends Controller {
 				if ($this->config->get('total_' . $result['code'] . '_status')) {
 					$this->load->model('extension/total/' . $result['code']);
 
-					// We have to put the totals in an array so that they pass by reference.
-					$this->{'model_extension_total_' . $result['code']}->getTotal($total_data);
+					// __call can not pass-by-reference so we get PHP to call it as an anonymous function.
+					($this->{'model_extension_total_' . $result['code']}->getTotal)($totals, $taxes, $total);
 				}
 			}
 
@@ -658,6 +654,7 @@ class ControllerExtensionPaymentPPExpress extends Controller {
 		 */
 		if ($this->customer->isLogged() && isset($this->session->data['payment_address_id'])) {
 			$this->load->model('account/address');
+
 			$payment_address = $this->model_account_address->getAddress($this->session->data['payment_address_id']);
 		} elseif (isset($this->session->data['guest'])) {
 			$payment_address = $this->session->data['guest']['payment'];
@@ -691,6 +688,7 @@ class ControllerExtensionPaymentPPExpress extends Controller {
 
 		if (!isset($method_data['pp_express'])) {
 			$this->session->data['error_warning'] = $this->language->get('error_unavailable');
+
 			$this->response->redirect($this->url->link('checkout/checkout', 'language=' . $this->config->get('config_language')));
 		}
 
@@ -803,13 +801,6 @@ class ControllerExtensionPaymentPPExpress extends Controller {
 			$taxes = $this->cart->getTaxes();
 			$total = 0;
 
-			// Because __call can not keep var references so we put them into an array.
-			$total_data = array(
-				'totals' => &$totals,
-				'taxes'  => &$taxes,
-				'total'  => &$total
-			);
-
 			$this->load->model('setting/extension');
 
 			$sort_order = array();
@@ -826,8 +817,8 @@ class ControllerExtensionPaymentPPExpress extends Controller {
 				if ($this->config->get('total_' . $result['code'] . '_status')) {
 					$this->load->model('extension/total/' . $result['code']);
 
-					// We have to put the totals in an array so that they pass by reference.
-					$this->{'model_extension_total_' . $result['code']}->getTotal($total_data);
+					// __call can not pass-by-reference so we get PHP to call it as an anonymous function.
+					($this->{'model_extension_total_' . $result['code']}->getTotal)($totals, $taxes, $total);
 				}
 			}
 
@@ -891,11 +882,13 @@ class ControllerExtensionPaymentPPExpress extends Controller {
 			$data['payment_address_format'] = isset($payment_address['address_format']) ? $payment_address['address_format'] : '';
 
 			$data['payment_method'] = '';
+
 			if (isset($this->session->data['payment_method']['title'])) {
 				$data['payment_method'] = $this->session->data['payment_method']['title'];
 			}
 
 			$data['payment_code'] = '';
+
 			if (isset($this->session->data['payment_method']['code'])) {
 				$data['payment_code'] = $this->session->data['payment_method']['code'];
 			}
@@ -1313,7 +1306,7 @@ class ControllerExtensionPaymentPPExpress extends Controller {
 			'NOSHIPPING'         => $shipping,
 			'LOCALECODE'         => 'EN',
 			'LANDINGPAGE'        => 'Login',
-			'HDRIMG'             => $this->model_tool_image->resize($this->config->get('payment_pp_express_logo'), 750, 90),
+			'HDRIMG'             => $this->model_tool_image->resize(html_entity_decode($this->config->get('payment_pp_express_logo'), ENT_QUOTES, 'UTF-8'), 750, 90),
 			'PAYFLOWCOLOR'       => $this->config->get('payment_pp_express_colour'),
 			'CHANNELTYPE'        => 'Merchant',
 			'ALLOWNOTE'          => $this->config->get('payment_pp_express_allow_note')
@@ -1359,11 +1352,10 @@ class ControllerExtensionPaymentPPExpress extends Controller {
 
 		$this->session->data['paypal']['token'] = $result['TOKEN'];
 
-		if ($this->config->get('payment_pp_express_test') == 1) {
-			header('Location: https://www.sandbox.paypal.com/cgi-bin/webscr?cmd=_express-checkout&token=' . $result['TOKEN'] . '&useraction=commit');
-		} else {
-			header('Location: https://www.paypal.com/cgi-bin/webscr?cmd=_express-checkout&token=' . $result['TOKEN'] . '&useraction=commit');
-		}
+		$json = array("token" => $result['TOKEN']);
+
+		$this->response->addHeader('Content-Type: application/json');
+		$this->response->setOutput(json_encode($json));
 	}
 
 	public function checkoutReturn() {
@@ -1601,7 +1593,7 @@ class ControllerExtensionPaymentPPExpress extends Controller {
 
 		$request = 'cmd=_notify-validate';
 
-		foreach ($_POST as $key => $value) {
+		foreach ($this->request->post as $key => $value) {
 			$request .= '&' . $key . '=' . urlencode(html_entity_decode($value, ENT_QUOTES, 'UTF-8'));
 		}
 

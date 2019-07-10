@@ -55,13 +55,19 @@ class ControllerInstallStep2 extends Controller {
 		$data['action'] = $this->url->link('install/step_2');
 
 		$data['php_version'] = phpversion();
+
+		if (version_compare(phpversion(), '7.0.0', '<')) {
+			$data['version'] = false;
+		} else {
+			$data['version'] = true;
+		}
+
 		$data['register_globals'] = ini_get('register_globals');
 		$data['magic_quotes_gpc'] = ini_get('magic_quotes_gpc');
 		$data['file_uploads'] = ini_get('file_uploads');
 		$data['session_auto_start'] = ini_get('session_auto_start');
 
 		$db = array(
-			'mysql',
 			'mysqli',
 			'pgsql',
 			'pdo'
@@ -115,7 +121,7 @@ class ControllerInstallStep2 extends Controller {
 	}
 
 	private function validate() {
-		if (phpversion() < '5.4') {
+		if (version_compare(phpversion(), '7.0.0', '<')) {
 			$this->error['warning'] = $this->language->get('error_version');
 		}
 
@@ -128,7 +134,6 @@ class ControllerInstallStep2 extends Controller {
 		}
 
 		$db = array(
-			'mysql',
 			'mysqli',
 			'pdo',
 			'pgsql'

@@ -2,7 +2,7 @@
 class ControllerStartupStartup extends Controller {
 	public function index() {
 		// Store
-		$query = $this->db->query("SELECT * FROM `" . DB_PREFIX . "store` WHERE REPLACE(`url`, 'www.', '') = '" . $this->db->escape(($this->request->server['HTTPS'] ? 'https://' : 'http://') . str_replace('www.', '', $_SERVER['HTTP_HOST']) . rtrim(dirname($_SERVER['PHP_SELF']), '/.\\') . '/') . "'");
+		$query = $this->db->query("SELECT * FROM `" . DB_PREFIX . "store` WHERE REPLACE(`url`, 'www.', '') = '" . $this->db->escape(($this->request->server['HTTPS'] ? 'https://' : 'http://') . str_replace('www.', '', $this->request->server['HTTP_HOST']) . rtrim(dirname($this->request->server['PHP_SELF']), '/.\\') . '/') . "'");
 
 		if (isset($this->request->get['store_id'])) {
 			$this->config->set('config_store_id', (int)$this->request->get['store_id']);
@@ -30,10 +30,41 @@ class ControllerStartupStartup extends Controller {
 		// Set time zone
 		if ($this->config->get('config_timezone')) {
 			date_default_timezone_set($this->config->get('config_timezone'));
+
+			// Sync PHP and DB time zones.
+			$this->db->query("SET time_zone = '" . $this->db->escape(date('P')) . "'");
 		}
 
-		// Theme
-		$this->config->set('template_cache', $this->config->get('developer_theme'));
+		// Session
+		if (isset($this->request->get['route']) && substr((string)$this->request->get['route'], 0, 4) == 'api/') {
+			$this->load->model('setting/api');
+
+			$this->model_setting_api->cleanApiSessions();
+
+			// Make sure the IP is allowed
+			$api_info = $this->model_setting_api->getApiByToken($this->request->get['api_token']);
+
+			if ($api_info) {
+				$this->session->start($this->request->get['api_token']);
+
+				$this->model_setting_api->updateApiSession($api_info['api_session_id']);
+			}
+		} else {
+			if (isset($this->request->cookie[$this->config->get('session_name')])) {
+				$session_id = $this->request->cookie[$this->config->get('session_name')];
+			} else {
+				$session_id = '';
+			}
+
+			$this->session->start($session_id);
+
+			setcookie($this->config->get('session_name'), $this->session->getId(), (ini_get('session.cookie_lifetime') ? (time() + ini_get('session.cookie_lifetime')) : 0), ini_get('session.cookie_path'), ini_get('session.cookie_domain'), ini_get('session.cookie_secure'), ini_get('session.cookie_httponly'));
+		}
+
+		// Response output compression level
+		if ($this->config->get('config_compression')) {
+			$this->response->setCompression($this->config->get('config_compression'));
+		}
 
 		// Url
 		$this->registry->set('url', new Url($this->config->get('config_url')));
@@ -50,6 +81,11 @@ class ControllerStartupStartup extends Controller {
 		// Language Cookie
 		if (isset($this->request->cookie['language']) && array_key_exists($this->request->cookie['language'], $language_codes)) {
 			$code = $this->request->cookie['language'];
+		}
+
+		// No cookie then use the language in the url
+		if (!$code && isset($this->request->get['language']) && array_key_exists($this->request->get['language'], $language_codes)) {
+			$code = $this->request->get['language'];
 		}
 
 		// Language Detection
@@ -98,12 +134,7 @@ class ControllerStartupStartup extends Controller {
 			$code = ($detect) ? $detect : '';
 		}
 
-		// No cookie then use the language in the url
-		if (!$code && isset($this->request->get['language']) && array_key_exists($this->request->get['language'], $language_codes)) {
-			$code = $this->request->get['language'];
-		}
-
-		// Language not avaliable then use default
+		// Language not available then use default
 		if (!array_key_exists($code, $language_codes)) {
 			$code = $this->config->get('config_language');
 		}

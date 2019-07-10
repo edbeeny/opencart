@@ -19,7 +19,7 @@
 //                               --email youremail@example.com
 //                               --http_server http://localhost/opencart/
 //
-
+//echo 'hifgfgfg';
 ini_set('display_errors', 1);
 
 error_reporting(E_ALL);
@@ -94,6 +94,7 @@ class ControllerCliInstall extends Controller {
 			'db_driver'   => 'mysqli',
 			'db_hostname' => 'localhost',
 			'db_database' => 'opencart',
+			'db_password' => '',
 			'db_prefix'   => 'oc_',
 			'db_port'     => '3306',
 			'username'    => 'admin'
@@ -140,8 +141,8 @@ class ControllerCliInstall extends Controller {
 		// Requirements
 		$error = '';
 
-		if (phpversion() < '5.4') {
-			$error .= 'You need to use PHP 5.4+ or above for OpenCart to work!';
+		if (version_compare(phpversion(), '7.0.0', '<')) {
+			$error .= 'You need to use PHP7+ or above for OpenCart to work!';
 		}
 
 		if (!ini_get('file_uploads')) {

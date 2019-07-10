@@ -40,13 +40,6 @@ class ControllerExtensionPaymentKlarnaAccount extends Controller {
 			$taxes = $this->cart->getTaxes();
 			$total = 0;
 
-			// Because __call can not keep var references so we put them into an array.
-			$total_data = array(
-				'totals' => &$totals,
-				'taxes'  => &$taxes,
-				'total'  => &$total
-			);
-
 			$this->load->model('setting/extension');
 
 			$sort_order = array();
@@ -66,9 +59,9 @@ class ControllerExtensionPaymentKlarnaAccount extends Controller {
 					$this->load->model('extension/total/' . $result['code']);
 
 					$taxes = array();
-					
-					// We have to put the totals in an array so that they pass by reference.
-					$this->{'model_extension_total_' . $result['code']}->getTotal($total_data);
+
+					// __call can not pass-by-reference so we get PHP to call it as an anonymous function.
+					($this->{'model_extension_total_' . $result['code']}->getTotal)($totals, $taxes, $total);
 
 					$amount = 0;
 
@@ -258,8 +251,6 @@ class ControllerExtensionPaymentKlarnaAccount extends Controller {
 					'title' => sprintf($this->language->get('text_monthly_payment'), $payment_option['title'], $this->currency->format($this->currency->convert($payment_option['monthly_cost'], $country_to_currency[$order_info['payment_iso_code_3']], $this->session->data['currency']), $this->session->data['currency'], 1))
 				);
 			}
-
-			$data['language'] = $this->config->get('config_language');
 
 			return $this->load->view('extension/payment/klarna_account', $data);
 		}
